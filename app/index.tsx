@@ -1,48 +1,116 @@
 import { useEffect, useState } from "react";
-import { FlatList, Text, TextInput, View } from "react-native";
-import User from "../components/User";
-import { users } from "../constants/users";
+import { ActivityIndicator, Button, FlatList, Text, View } from "react-native";
+import PostCard from "../components/post-card";
+import { Post } from "../types";
+
+const LIMIT = 10;
 
 export default function Index() {
-  const [search, setSearch] = useState("");
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [page, setPage] = useState(1);
+
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
+  const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+
+  const fetchPosts = async (pageNumber: number, isLoadMore = false) => {
+    try {
+      setError(null);
+
+      if (isLoadMore) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+
+      const response = await fetch(
+        `https://jsonplaceholder.typicode.com/posts?_page=${pageNumber}&_limit=${LIMIT}`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch posts");
+      }
+
+      const data: Post[] = await response.json();
+
+      if (isLoadMore) {
+        setPosts((prev) => [...prev, ...data]);
+      } else {
+        setPosts(data);
+      }
+
+      setHasMore(data.length === LIMIT);
+      setPage(pageNumber);
+    } catch (error) {
+      setError("Something went wrong, please try again.");
+    } finally {
       setLoading(false);
-    }, 2000);
+      setLoadingMore(false);
+      setRefreshing(false);
+    }
+  };
 
-    return () => clearTimeout(timer);
-  }, [loading]);
+  useEffect(() => {
+    fetchPosts(1);
+  }, []);
 
-  const filteredData = users.filter((user) => {
-    const lower = search.toLowerCase();
-    const emailSearch = user.email.includes(lower);
-    const nameSearch = user.name.includes(lower);
+  const handleLoadMore = () => {
+    if (loadingMore || loading || !hasMore) {
+      return;
+    }
 
-    return emailSearch || nameSearch;
-  });
+    fetchPosts(page + 1, true);
+  };
 
-  if (loading) return <Text>Loading...</Text>;
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setHasMore(true);
+    fetchPosts(1);
+  };
+
+  if (loading && posts.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center">
+        <ActivityIndicator />
+        <Text>Loading...</Text>
+      </View>
+    );
+  }
+
+  if (error && posts.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center gap-3">
+        <Text>{error}</Text>
+        <Button title="Retry" onPress={() => fetchPosts(1)} />
+      </View>
+    );
+  }
+
   return (
-    <View className="flex-1  gap-3 p-3">
-      <TextInput
-        placeholder="search"
-        className="w-full rounded-md p-2 border border-gray-200"
-        onChangeText={setSearch}
+    <View className="flex-1 p-3">
+      <FlatList
+        data={posts}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => <PostCard post={item} />}
+        ItemSeparatorComponent={() => <View className="h-2" />}
+        refreshing={refreshing}
+        onRefresh={handleRefresh}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          loadingMore ? (
+            <View className="py-4">
+              <ActivityIndicator />
+            </View>
+          ) : null
+        }
       />
-      {!filteredData.length ? (
-        <Text>No Users Found..</Text>
-      ) : (
-        <FlatList
-          data={filteredData}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <User user={item} />}
-          ItemSeparatorComponent={() => <View className="h-3" />}
-          refreshing={refreshing}
-          onRefresh={() => setLoading(true)}
-        />
+
+      {error && posts.length > 0 && (
+        <Text className="p-2 text-center">{error}</Text>
       )}
     </View>
   );
